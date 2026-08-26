@@ -47,10 +47,10 @@ func (err *Error) Error() string {
 		return ""
 	}
 	filename := ""
-	if len(err.LocationSources) > 0 && err.LocationSources[0] != nil {
+	hasPrimarySource := len(err.LocationSources) > 0 && err.LocationSources[0] != nil
+	if hasPrimarySource {
 		filename = err.LocationSources[0].Name
-	}
-	if filename == "" {
+	} else {
 		filename, _ = err.Extensions["file"].(string)
 	}
 	if filename == "" {

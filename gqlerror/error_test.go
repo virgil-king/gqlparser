@@ -72,6 +72,23 @@ func TestErrorFormatting(t *testing.T) {
 
 		require.Equal(t, `first.graphql:1:2: kabloom`, err.Error())
 	})
+
+	t.Run("with unnamed primary source", func(t *testing.T) {
+		err := &Error{
+			Message: "kabloom",
+			Locations: []Location{
+				{Line: 1, Column: 2},
+				{Line: 3, Column: 4},
+			},
+			LocationSources: []*ast.Source{
+				{},
+				{Name: "second.graphql"},
+			},
+			Extensions: map[string]any{"file": "second.graphql"},
+		}
+
+		require.Equal(t, `input:1:2: kabloom`, err.Error())
+	})
 }
 
 func TestErrorPosition(t *testing.T) {
