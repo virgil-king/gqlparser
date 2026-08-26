@@ -7,6 +7,7 @@ import (
 
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/vektah/gqlparser/v2/parser"
 	"github.com/vektah/gqlparser/v2/validator"
 	"github.com/vektah/gqlparser/v2/validator/rules"
@@ -42,6 +43,78 @@ extend type Query {
 
 	require.Nil(t, validator.Validate(s, q))
 	require.Nil(t, validator.ValidateWithRules(s, q, nil))
+}
+
+func TestVariablesInAllowedPositionRetainsSourcesForMultipleLocations(t *testing.T) {
+	s := gqlparser.MustLoadSchema(&ast.Source{
+		Name: "schema.graphqls",
+		Input: `
+input Filter @oneOf {
+  byID: ID
+}
+
+type Query {
+  search(filter: Filter): String
+}
+`,
+	})
+
+	querySource := &ast.Source{
+		Name:  "queries/Search.graphql",
+		Input: "query Search($id: ID) { ...SearchFields }",
+	}
+	fragmentSource := &ast.Source{
+		Name:  "fragments/SearchFields.graphql",
+		Input: "fragment SearchFields on Query { search(filter: {byID: $id}) }",
+	}
+	query, err := parser.ParseQuery(querySource)
+	require.NoError(t, err)
+	fragment, err := parser.ParseQuery(fragmentSource)
+	require.NoError(t, err)
+
+	doc := &ast.QueryDocument{
+		Operations: query.Operations,
+		Fragments:  fragment.Fragments,
+	}
+	errs := validator.Validate(s, doc)
+
+	var found *gqlerror.Error
+	for _, err := range errs {
+		if err.Rule == "VariablesInAllowedPosition" {
+			found = err
+			break
+		}
+	}
+	require.NotNil(t, found, "expected a VariablesInAllowedPosition error, got %v", errs)
+	require.Len(t, found.Locations, 2)
+	require.Same(t, querySource, found.Locations[0].Source)
+	require.Same(t, fragmentSource, found.Locations[1].Source)
+	require.Equal(t, 1, found.Locations[0].Line)
+	require.Equal(t, 1, found.Locations[1].Line)
+}
+
+func TestSingleLocationValidationRetainsSource(t *testing.T) {
+	s := gqlparser.MustLoadSchema(&ast.Source{
+		Name:  "schema.graphqls",
+		Input: "type Query { search: String }",
+	})
+	source := &ast.Source{
+		Name:  "queries/Search.graphql",
+		Input: "query Search { missing }",
+	}
+	query, err := parser.ParseQuery(source)
+	require.NoError(t, err)
+
+	var found *gqlerror.Error
+	for _, err := range validator.Validate(s, query) {
+		if err.Rule == "FieldsOnCorrectType" {
+			found = err
+			break
+		}
+	}
+	require.NotNil(t, found)
+	require.Len(t, found.Locations, 1)
+	require.Same(t, source, found.Locations[0].Source)
 }
 
 func TestValidationRulesAreIndependent(t *testing.T) {

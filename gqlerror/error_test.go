@@ -1,6 +1,7 @@
 package gqlerror
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -66,6 +67,32 @@ func TestErrorPosition(t *testing.T) {
 		require.Nil(t, err.Extensions["file"])
 		require.Nil(t, errNilPosition.Extensions["file"])
 	})
+
+	t.Run("retains source", func(t *testing.T) {
+		source := &ast.Source{Name: "query.graphql", Input: "query Q { field }"}
+		position := &ast.Position{Line: 1, Column: 11, Src: source}
+
+		err := ErrorPosf(position, "kabloom")
+
+		require.Len(t, err.Locations, 1)
+		require.Same(t, source, err.Locations[0].Source)
+	})
+}
+
+func TestLocationSourceIsNotSerialized(t *testing.T) {
+	source := &ast.Source{Name: "query.graphql", Input: "query Q { field }"}
+	err := &Error{
+		Message: "kabloom",
+		Locations: []Location{{
+			Line:   1,
+			Column: 11,
+			Source: source,
+		}},
+	}
+
+	encoded, errEncoding := json.Marshal(err)
+	require.NoError(t, errEncoding)
+	require.JSONEq(t, `{"message":"kabloom","locations":[{"line":1,"column":11}]}`, string(encoded))
 }
 
 func TestList_As(t *testing.T) {

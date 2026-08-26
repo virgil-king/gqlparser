@@ -33,6 +33,10 @@ func (err *Error) SetFile(file string) {
 type Location struct {
 	Line   int `json:"line,omitempty"`
 	Column int `json:"column,omitempty"`
+	// Source identifies the source document containing this location. It is
+	// intentionally omitted from the GraphQL response representation, which
+	// only carries line and column for each location.
+	Source *ast.Source `json:"-"`
 }
 
 type List []*Error
@@ -174,13 +178,15 @@ func ErrorPosf(pos *ast.Position, message string, args ...any) *Error {
 			args...,
 		)
 	}
-	return ErrorLocf(
+	err := ErrorLocf(
 		pos.Src.Name,
 		pos.Line,
 		pos.Column,
 		message,
 		args...,
 	)
+	err.Locations[0].Source = pos.Src
+	return err
 }
 
 func ErrorLocf(file string, line, col int, message string, args ...any) *Error {
