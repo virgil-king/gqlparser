@@ -1,6 +1,7 @@
 package validator_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -92,8 +93,21 @@ type Query {
 	require.Same(t, fragmentSource, found.LocationSources[1])
 	require.Equal(t, 1, found.Locations[0].Line)
 	require.Equal(t, 1, found.Locations[1].Line)
-	require.Equal(t, querySource.Name, found.Extensions["file"])
+	require.Equal(t, 14, found.Locations[0].Column)
+	require.Equal(t, 56, found.Locations[1].Column)
+	require.Equal(t, fragmentSource.Name, found.Extensions["file"])
 	require.Equal(t, "queries/Search.graphql:1:14: "+found.Message, found.Error())
+
+	encoded, marshalErr := json.Marshal(found)
+	require.NoError(t, marshalErr)
+	require.JSONEq(t, `{
+		"message": "Variable \"$id\" is of type \"ID\" but must be non-nullable to be used for OneOf Input Object \"Filter\".",
+		"locations": [
+			{"line": 1, "column": 14},
+			{"line": 1, "column": 56}
+		],
+		"extensions": {"file": "fragments/SearchFields.graphql"}
+	}`, string(encoded))
 }
 
 func TestSingleLocationValidationRetainsSource(t *testing.T) {

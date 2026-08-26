@@ -17,6 +17,7 @@ type Error struct {
 	Locations []Location `json:"locations,omitempty"`
 	// LocationSources aligns source documents with Locations by index. An entry
 	// may be nil when the corresponding location has no source document.
+	// Keeping the sources on Error preserves Location's two-field literal shape.
 	LocationSources []*ast.Source  `json:"-"`
 	Extensions      map[string]any `json:"extensions,omitempty"`
 	Rule            string         `json:"-"`

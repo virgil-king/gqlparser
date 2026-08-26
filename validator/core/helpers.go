@@ -33,7 +33,7 @@ func At(position *ast.Position) ErrorOption {
 			Column: position.Column,
 		})
 		err.LocationSources = append(err.LocationSources, position.Src)
-		if len(err.Locations) == 1 && position.Src.Name != "" {
+		if position.Src.Name != "" {
 			err.SetFile(position.Src.Name)
 		}
 	}
