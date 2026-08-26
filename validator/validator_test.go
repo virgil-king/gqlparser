@@ -87,10 +87,13 @@ type Query {
 	}
 	require.NotNil(t, found, "expected a VariablesInAllowedPosition error, got %v", errs)
 	require.Len(t, found.Locations, 2)
-	require.Same(t, querySource, found.Locations[0].Source)
-	require.Same(t, fragmentSource, found.Locations[1].Source)
+	require.Len(t, found.LocationSources, 2)
+	require.Same(t, querySource, found.LocationSources[0])
+	require.Same(t, fragmentSource, found.LocationSources[1])
 	require.Equal(t, 1, found.Locations[0].Line)
 	require.Equal(t, 1, found.Locations[1].Line)
+	require.Equal(t, querySource.Name, found.Extensions["file"])
+	require.Equal(t, "queries/Search.graphql:1:14: "+found.Message, found.Error())
 }
 
 func TestSingleLocationValidationRetainsSource(t *testing.T) {
@@ -114,7 +117,8 @@ func TestSingleLocationValidationRetainsSource(t *testing.T) {
 	}
 	require.NotNil(t, found)
 	require.Len(t, found.Locations, 1)
-	require.Same(t, source, found.Locations[0].Source)
+	require.Len(t, found.LocationSources, 1)
+	require.Same(t, source, found.LocationSources[0])
 }
 
 func TestValidationRulesAreIndependent(t *testing.T) {

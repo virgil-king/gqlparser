@@ -11,12 +11,15 @@ import (
 
 // Error is the standard graphql error type described in https://spec.graphql.org/draft/#sec-Errors
 type Error struct {
-	Err        error          `json:"-"`
-	Message    string         `json:"message"`
-	Path       ast.Path       `json:"path,omitempty"`
-	Locations  []Location     `json:"locations,omitempty"`
-	Extensions map[string]any `json:"extensions,omitempty"`
-	Rule       string         `json:"-"`
+	Err       error      `json:"-"`
+	Message   string     `json:"message"`
+	Path      ast.Path   `json:"path,omitempty"`
+	Locations []Location `json:"locations,omitempty"`
+	// LocationSources aligns source documents with Locations by index. An entry
+	// may be nil when the corresponding location has no source document.
+	LocationSources []*ast.Source  `json:"-"`
+	Extensions      map[string]any `json:"extensions,omitempty"`
+	Rule            string         `json:"-"`
 }
 
 func (err *Error) SetFile(file string) {
@@ -33,10 +36,6 @@ func (err *Error) SetFile(file string) {
 type Location struct {
 	Line   int `json:"line,omitempty"`
 	Column int `json:"column,omitempty"`
-	// Source identifies the source document containing this location. It is
-	// intentionally omitted from the GraphQL response representation, which
-	// only carries line and column for each location.
-	Source *ast.Source `json:"-"`
 }
 
 type List []*Error
@@ -46,7 +45,13 @@ func (err *Error) Error() string {
 	if err == nil {
 		return ""
 	}
-	filename, _ := err.Extensions["file"].(string)
+	filename := ""
+	if len(err.LocationSources) > 0 && err.LocationSources[0] != nil {
+		filename = err.LocationSources[0].Name
+	}
+	if filename == "" {
+		filename, _ = err.Extensions["file"].(string)
+	}
 	if filename == "" {
 		filename = "input"
 	}
@@ -185,7 +190,7 @@ func ErrorPosf(pos *ast.Position, message string, args ...any) *Error {
 		message,
 		args...,
 	)
-	err.Locations[0].Source = pos.Src
+	err.LocationSources = []*ast.Source{pos.Src}
 	return err
 }
 

@@ -31,9 +31,9 @@ func At(position *ast.Position) ErrorOption {
 		err.Locations = append(err.Locations, gqlerror.Location{
 			Line:   position.Line,
 			Column: position.Column,
-			Source: position.Src,
 		})
-		if position.Src.Name != "" {
+		err.LocationSources = append(err.LocationSources, position.Src)
+		if len(err.Locations) == 1 && position.Src.Name != "" {
 			err.SetFile(position.Src.Name)
 		}
 	}

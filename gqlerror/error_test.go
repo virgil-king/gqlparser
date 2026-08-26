@@ -55,6 +55,23 @@ func TestErrorFormatting(t *testing.T) {
 
 		require.Equal(t, `input: a[1].b kabloom`, err.Error())
 	})
+
+	t.Run("with multiple sources", func(t *testing.T) {
+		err := &Error{
+			Message: "kabloom",
+			Locations: []Location{
+				{Line: 1, Column: 2},
+				{Line: 3, Column: 4},
+			},
+			LocationSources: []*ast.Source{
+				{Name: "first.graphql"},
+				{Name: "second.graphql"},
+			},
+			Extensions: map[string]any{"file": "second.graphql"},
+		}
+
+		require.Equal(t, `first.graphql:1:2: kabloom`, err.Error())
+	})
 }
 
 func TestErrorPosition(t *testing.T) {
@@ -75,19 +92,19 @@ func TestErrorPosition(t *testing.T) {
 		err := ErrorPosf(position, "kabloom")
 
 		require.Len(t, err.Locations, 1)
-		require.Same(t, source, err.Locations[0].Source)
+		require.Len(t, err.LocationSources, 1)
+		require.Same(t, source, err.LocationSources[0])
 	})
 }
 
-func TestLocationSourceIsNotSerialized(t *testing.T) {
+func TestLocationSourcesAreNotSerialized(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql", Input: "query Q { field }"}
 	err := &Error{
 		Message: "kabloom",
 		Locations: []Location{{
-			Line:   1,
-			Column: 11,
-			Source: source,
+			Line: 1, Column: 11,
 		}},
+		LocationSources: []*ast.Source{source},
 	}
 
 	encoded, errEncoding := json.Marshal(err)
