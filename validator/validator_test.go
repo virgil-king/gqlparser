@@ -204,6 +204,22 @@ func TestValidateWithRulesWithSourcesUsesDefaultRules(t *testing.T) {
 	require.Equal(t, []gqlerror.SourceLocation{{Line: 1, Column: 15, Source: source}}, found.Locations)
 }
 
+func TestCaptureSourceLocationsRejectsClearedLocations(t *testing.T) {
+	err := &gqlerror.Error{}
+	source := &ast.Source{Name: "query.graphql"}
+
+	require.PanicsWithValue(
+		t,
+		"gqlparser: captured source location 0 does not match the final error locations",
+		func() {
+			core.CaptureSourceLocations(err, func() {
+				core.At(&ast.Position{Src: source, Line: 1, Column: 2})(err)
+				err.Locations = nil
+			})
+		},
+	)
+}
+
 func TestValidationRulesAreIndependent(t *testing.T) {
 	s := gqlparser.MustLoadSchema(
 		&ast.Source{Name: "graph/schema.graphqls", Input: `

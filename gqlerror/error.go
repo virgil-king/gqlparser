@@ -56,7 +56,8 @@ type ErrorWithSources struct {
 	Extensions map[string]any   `json:"extensions,omitempty"`
 	Rule       string           `json:"-"`
 
-	fileOverride bool
+	legacyLocations bool
+	fileOverride    bool
 }
 
 // NewErrorWithSources pairs an existing GraphQL error with source-aware
@@ -66,6 +67,7 @@ func NewErrorWithSources(err *Error, locations []SourceLocation) *ErrorWithSourc
 	if err == nil {
 		return nil
 	}
+	legacyLocations := locations == nil
 	if len(locations) > 0 && len(err.Locations) > 0 {
 		if len(locations) != len(err.Locations) {
 			panic(fmt.Sprintf(
@@ -93,12 +95,13 @@ func NewErrorWithSources(err *Error, locations []SourceLocation) *ErrorWithSourc
 		}
 	}
 	return &ErrorWithSources{
-		Err:        err.Err,
-		Message:    err.Message,
-		Path:       err.Path,
-		Locations:  append([]SourceLocation(nil), locations...),
-		Extensions: err.Extensions,
-		Rule:       err.Rule,
+		Err:             err.Err,
+		Message:         err.Message,
+		Path:            err.Path,
+		Locations:       append([]SourceLocation(nil), locations...),
+		Extensions:      err.Extensions,
+		Rule:            err.Rule,
+		legacyLocations: legacyLocations,
 	}
 }
 
@@ -107,6 +110,7 @@ func NewErrorWithSources(err *Error, locations []SourceLocation) *ErrorWithSourc
 func (err *ErrorWithSources) UnmarshalJSON(data []byte) error {
 	type errorWithoutMethods ErrorWithSources
 	err.Locations = nil
+	err.legacyLocations = true
 	err.fileOverride = false
 	return json.Unmarshal(data, (*errorWithoutMethods)(err))
 }
@@ -154,6 +158,8 @@ func (err *ErrorWithSources) Error() string {
 	} else if len(err.Locations) > 1 && !err.fileOverride {
 		if source := err.Locations[0].Source; source != nil {
 			filename = source.Name
+		} else if !err.legacyLocations {
+			filename = ""
 		}
 	}
 	if filename != "" {

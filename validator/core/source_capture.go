@@ -29,6 +29,12 @@ func CaptureSourceLocations(err *gqlerror.Error, apply func()) []gqlerror.Source
 
 	apply()
 	if len(err.Locations) == 0 {
+		if len(capture.locations) > 0 {
+			panic(fmt.Sprintf(
+				"gqlparser: captured source location %d does not match the final error locations",
+				0,
+			))
+		}
 		return nil
 	}
 	locations := make([]gqlerror.SourceLocation, len(err.Locations))

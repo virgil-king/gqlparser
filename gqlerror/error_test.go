@@ -134,6 +134,19 @@ func TestErrorWithSourcesSetFileOverridesSourceName(t *testing.T) {
 	require.Equal(t, `override.graphql:1:2: kabloom`, err.Error())
 }
 
+func TestErrorWithSourcesSetFileOverridesPrimarySourceForMultipleLocations(t *testing.T) {
+	err := &ErrorWithSources{
+		Message: "kabloom",
+		Locations: []SourceLocation{
+			{Line: 1, Column: 2, Source: &ast.Source{Name: "first.graphql"}},
+			{Line: 3, Column: 4, Source: &ast.Source{Name: "second.graphql"}},
+		},
+	}
+	err.SetFile("override.graphql")
+
+	require.Equal(t, `override.graphql:1:2: kabloom`, err.Error())
+}
+
 func TestErrorWithSourcesFormatsDirectCanonicalLocations(t *testing.T) {
 	err := &ErrorWithSources{
 		Message: "kabloom",
@@ -144,6 +157,28 @@ func TestErrorWithSourcesFormatsDirectCanonicalLocations(t *testing.T) {
 	}
 
 	require.Equal(t, `first.graphql:1:2: kabloom`, err.Error())
+}
+
+func TestErrorWithSourcesFormatsDirectSingleLocation(t *testing.T) {
+	err := &ErrorWithSources{
+		Message:   "kabloom",
+		Locations: []SourceLocation{{Line: 1, Column: 2, Source: &ast.Source{Name: "query.graphql"}}},
+	}
+
+	require.Equal(t, `query.graphql:1:2: kabloom`, err.Error())
+}
+
+func TestErrorWithSourcesPreservesDirectMissingPrimarySource(t *testing.T) {
+	err := &ErrorWithSources{
+		Message:    "kabloom",
+		Extensions: map[string]any{"file": "second.graphql"},
+		Locations: []SourceLocation{
+			{Line: 1, Column: 2},
+			{Line: 3, Column: 4, Source: &ast.Source{Name: "second.graphql"}},
+		},
+	}
+
+	require.Equal(t, `input:1:2: kabloom`, err.Error())
 }
 
 func TestErrorWithSourcesReturnsDerivedCopy(t *testing.T) {
@@ -161,6 +196,20 @@ func TestErrorWithSourcesReturnsDerivedCopy(t *testing.T) {
 	require.Same(t, source, err.SourceLocations()[0].Source)
 }
 
+func TestNewErrorWithSourcesCopiesInputLocations(t *testing.T) {
+	source := &ast.Source{Name: "query.graphql"}
+	locations := []SourceLocation{{Line: 1, Column: 2, Source: source}}
+	err := NewErrorWithSources(
+		&Error{Locations: []Location{{Line: 1, Column: 2}}},
+		locations,
+	)
+
+	locations[0].Line = 99
+	locations[0].Source = nil
+
+	require.Equal(t, SourceLocation{Line: 1, Column: 2, Source: source}, err.Locations[0])
+}
+
 func TestNewErrorWithSourcesRejectsMismatchedLocations(t *testing.T) {
 	require.PanicsWithValue(
 		t,
@@ -169,6 +218,19 @@ func TestNewErrorWithSourcesRejectsMismatchedLocations(t *testing.T) {
 			NewErrorWithSources(
 				&Error{Locations: []Location{{Line: 1, Column: 2}}},
 				[]SourceLocation{{Line: 1, Column: 2}, {Line: 3, Column: 4}},
+			)
+		},
+	)
+}
+
+func TestNewErrorWithSourcesRejectsMismatchedCoordinates(t *testing.T) {
+	require.PanicsWithValue(
+		t,
+		"gqlerror: source location 0 does not match location coordinates",
+		func() {
+			NewErrorWithSources(
+				&Error{Locations: []Location{{Line: 1, Column: 2}}},
+				[]SourceLocation{{Line: 3, Column: 4}},
 			)
 		},
 	)
