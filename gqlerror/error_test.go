@@ -119,10 +119,9 @@ func TestErrorPosition(t *testing.T) {
 		err := ErrorPosf(position, "kabloom")
 
 		require.Len(t, err.Locations, 1)
-		sourceLocations := err.SourceLocations()
-		require.Len(t, sourceLocations, 1)
-		require.Equal(t, Location{Line: 1, Column: 11}, sourceLocations[0].Location)
-		require.Same(t, source, sourceLocations[0].Source)
+		require.Len(t, err.LocationSources, 1)
+		require.Equal(t, Location{Line: 1, Column: 11}, err.Locations[0])
+		require.Same(t, source, err.LocationSources[0])
 	})
 }
 
@@ -136,7 +135,7 @@ func TestSourceLocationsAreNotSerialized(t *testing.T) {
 	require.JSONEq(t, `{"message":"kabloom","locations":[{"line":1,"column":11}]}`, string(encoded))
 }
 
-func TestSourceLocationsReturnsCopy(t *testing.T) {
+func TestSourceLocationsReturnsDerivedCopy(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql"}
 	err := &Error{}
 	err.AddLocation(Location{Line: 1, Column: 2}, source)
@@ -155,10 +154,11 @@ func TestAddLocationHydratesExistingLocations(t *testing.T) {
 
 	err.AddLocation(Location{Line: 3, Column: 4}, source)
 
-	require.Equal(t, []SourceLocation{
-		{Location: Location{Line: 1, Column: 2}},
-		{Location: Location{Line: 3, Column: 4}, Source: source},
-	}, err.SourceLocations())
+	require.Len(t, err.LocationSources, 2)
+	require.Nil(t, err.LocationSources[0])
+	require.Equal(t, Location{Line: 1, Column: 2}, err.Locations[0])
+	require.Same(t, source, err.LocationSources[1])
+	require.Equal(t, Location{Line: 3, Column: 4}, err.Locations[1])
 }
 
 func TestAddLocationHydratesJSONLocations(t *testing.T) {
@@ -171,10 +171,11 @@ func TestAddLocationHydratesJSONLocations(t *testing.T) {
 
 	err.AddLocation(Location{Line: 3, Column: 4}, source)
 
-	require.Equal(t, []SourceLocation{
-		{Location: Location{Line: 1, Column: 2}},
-		{Location: Location{Line: 3, Column: 4}, Source: source},
-	}, err.SourceLocations())
+	require.Len(t, err.LocationSources, 2)
+	require.Nil(t, err.LocationSources[0])
+	require.Equal(t, Location{Line: 1, Column: 2}, err.Locations[0])
+	require.Same(t, source, err.LocationSources[1])
+	require.Equal(t, Location{Line: 3, Column: 4}, err.Locations[1])
 }
 
 func TestUnmarshalJSONClearsSourceLocations(t *testing.T) {
@@ -189,47 +190,21 @@ func TestUnmarshalJSONClearsSourceLocations(t *testing.T) {
 		err,
 	))
 
+	require.Empty(t, err.LocationSources)
 	require.Empty(t, err.SourceLocations())
 	require.Equal(t, `input:1:2: second`, err.Error())
 }
 
-func TestSourceLocationsRejectsIndependentLocationChanges(t *testing.T) {
-	t.Run("replacement", func(t *testing.T) {
-		err := &Error{}
-		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "query.graphql"})
-		err.Locations[0] = Location{Line: 3, Column: 4}
+func TestSourceLocationsRejectsMisalignedLocationSources(t *testing.T) {
+	err := &Error{}
+	err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "query.graphql"})
+	err.Locations = nil
 
-		require.PanicsWithValue(
-			t,
-			"gqlerror: location 0 changed independently of its source",
-			func() { err.SourceLocations() },
-		)
-	})
-
-	t.Run("reordering", func(t *testing.T) {
-		err := &Error{}
-		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "first.graphql"})
-		err.AddLocation(Location{Line: 3, Column: 4}, &ast.Source{Name: "second.graphql"})
-		err.Locations[0], err.Locations[1] = err.Locations[1], err.Locations[0]
-
-		require.PanicsWithValue(
-			t,
-			"gqlerror: location 0 changed independently of its source",
-			func() { err.SourceLocations() },
-		)
-	})
-
-	t.Run("clearing", func(t *testing.T) {
-		err := &Error{}
-		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "query.graphql"})
-		err.Locations = nil
-
-		require.PanicsWithValue(
-			t,
-			"gqlerror: location count 0 does not match source location count 1",
-			func() { err.SourceLocations() },
-		)
-	})
+	require.PanicsWithValue(
+		t,
+		"gqlerror: location count 0 does not match source count 1",
+		func() { err.SourceLocations() },
+	)
 }
 
 func TestErrorFormattingToleratesIndependentLocationChanges(t *testing.T) {
@@ -241,7 +216,7 @@ func TestErrorFormattingToleratesIndependentLocationChanges(t *testing.T) {
 	err.AddLocation(Location{Line: 3, Column: 4}, &ast.Source{Name: "second.graphql"})
 	err.Locations[0] = Location{Line: 5, Column: 6}
 
-	require.Equal(t, `second.graphql:5:6: kabloom`, err.Error())
+	require.Equal(t, `first.graphql:5:6: kabloom`, err.Error())
 }
 
 func TestList_As(t *testing.T) {

@@ -12,11 +12,11 @@ import (
 
 // Error is the standard graphql error type described in https://spec.graphql.org/draft/#sec-Errors
 type Error struct {
-	Err             error      `json:"-"`
-	Message         string     `json:"message"`
-	Path            ast.Path   `json:"path,omitempty"`
-	Locations       []Location `json:"locations,omitempty"`
-	sourceLocations []SourceLocation
+	Err             error          `json:"-"`
+	Message         string         `json:"message"`
+	Path            ast.Path       `json:"path,omitempty"`
+	Locations       []Location     `json:"locations,omitempty"`
+	LocationSources []*ast.Source  `json:"-"`
 	Extensions      map[string]any `json:"extensions,omitempty"`
 	Rule            string         `json:"-"`
 }
@@ -37,8 +37,8 @@ type Location struct {
 	Column int `json:"column,omitempty"`
 }
 
-// SourceLocation identifies a location and its source document. Source is nil
-// when the location has no source document.
+// SourceLocation pairs a GraphQL location with its source document. Source is
+// nil when the location has no source document.
 type SourceLocation struct {
 	Location Location
 	Source   *ast.Source
@@ -47,71 +47,52 @@ type SourceLocation struct {
 // AddLocation appends a location to the GraphQL response and its source-aware
 // representation.
 func (err *Error) AddLocation(location Location, source *ast.Source) {
-	err.validateSourceLocations()
-	if len(err.sourceLocations) == 0 && len(err.Locations) > 0 {
-		err.sourceLocations = make([]SourceLocation, len(err.Locations))
-		for i, existing := range err.Locations {
-			err.sourceLocations[i].Location = existing
-		}
+	if len(err.LocationSources) == 0 && len(err.Locations) > 0 {
+		err.LocationSources = make([]*ast.Source, len(err.Locations))
+	}
+	if len(err.LocationSources) != len(err.Locations) {
+		panic(fmt.Sprintf(
+			"gqlerror: location count %d does not match source count %d",
+			len(err.Locations),
+			len(err.LocationSources),
+		))
 	}
 	err.Locations = append(err.Locations, location)
-	err.sourceLocations = append(err.sourceLocations, SourceLocation{
-		Location: location,
-		Source:   source,
-	})
+	err.LocationSources = append(err.LocationSources, source)
 }
 
 // SourceLocations returns a shallow copy of the source-aware locations in
-// validation order. It panics when Locations changed independently after a
-// source-aware location was added.
+// validation order. It returns nil when the error has no source metadata. It
+// panics when LocationSources is not aligned with Locations.
 func (err *Error) SourceLocations() []SourceLocation {
 	if err == nil {
 		return nil
 	}
-	err.validateSourceLocations()
-	locations := make([]SourceLocation, len(err.sourceLocations))
-	copy(locations, err.sourceLocations)
-	return locations
-}
-
-func (err *Error) validateSourceLocations() {
-	if err.sourceLocationsMatch() {
-		return
+	if len(err.LocationSources) == 0 {
+		return nil
 	}
-	if len(err.sourceLocations) != len(err.Locations) {
+	if len(err.LocationSources) != len(err.Locations) {
 		panic(fmt.Sprintf(
-			"gqlerror: location count %d does not match source location count %d",
+			"gqlerror: location count %d does not match source count %d",
 			len(err.Locations),
-			len(err.sourceLocations),
+			len(err.LocationSources),
 		))
 	}
-	for i, sourceLocation := range err.sourceLocations {
-		if sourceLocation.Location != err.Locations[i] {
-			panic(fmt.Sprintf("gqlerror: location %d changed independently of its source", i))
+	locations := make([]SourceLocation, len(err.Locations))
+	for i, location := range err.Locations {
+		locations[i] = SourceLocation{
+			Location: location,
+			Source:   err.LocationSources[i],
 		}
 	}
-}
-
-func (err *Error) sourceLocationsMatch() bool {
-	if len(err.sourceLocations) == 0 {
-		return true
-	}
-	if len(err.sourceLocations) != len(err.Locations) {
-		return false
-	}
-	for i, sourceLocation := range err.sourceLocations {
-		if sourceLocation.Location != err.Locations[i] {
-			return false
-		}
-	}
-	return true
+	return locations
 }
 
 // UnmarshalJSON discards source documents because GraphQL error JSON does not
 // encode them.
 func (err *Error) UnmarshalJSON(data []byte) error {
 	type errorWithoutMethods Error
-	err.sourceLocations = nil
+	err.LocationSources = nil
 	return json.Unmarshal(data, (*errorWithoutMethods)(err))
 }
 
@@ -122,20 +103,16 @@ func (err *Error) Error() string {
 	if err == nil {
 		return ""
 	}
-	sourceLocations := err.sourceLocations
-	if !err.sourceLocationsMatch() {
-		sourceLocations = nil
-	}
 	filename := ""
-	if len(sourceLocations) == 0 {
+	if len(err.Locations) == 0 {
 		filename, _ = err.Extensions["file"].(string)
-	} else if len(sourceLocations) == 1 {
+	} else if len(err.Locations) == 1 {
 		filename, _ = err.Extensions["file"].(string)
-		if filename == "" && sourceLocations[0].Source != nil {
-			filename = sourceLocations[0].Source.Name
+		if filename == "" && len(err.LocationSources) > 0 && err.LocationSources[0] != nil {
+			filename = err.LocationSources[0].Name
 		}
-	} else if sourceLocations[0].Source != nil {
-		filename = sourceLocations[0].Source.Name
+	} else if len(err.LocationSources) > 0 && err.LocationSources[0] != nil {
+		filename = err.LocationSources[0].Name
 	}
 	if filename == "" {
 		filename = "input"

@@ -16,15 +16,14 @@ func TestLocationSupportsUnkeyedLiteral(t *testing.T) {
 	require.Equal(t, 2, location.Column)
 }
 
-func TestSourceLocationsAreAvailableOutsidePackage(t *testing.T) {
+func TestLocationSourcesAreAvailableOutsidePackage(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql"}
 	err := &gqlerror.Error{}
 	err.AddLocation(gqlerror.Location{Line: 1, Column: 2}, source)
 
-	locations := err.SourceLocations()
-	require.Len(t, locations, 1)
-	require.Equal(t, gqlerror.Location{Line: 1, Column: 2}, locations[0].Location)
-	require.Same(t, source, locations[0].Source)
+	require.Len(t, err.LocationSources, 1)
+	require.Same(t, source, err.LocationSources[0])
+	require.Equal(t, gqlerror.Location{Line: 1, Column: 2}, err.Locations[0])
 }
 
 func TestErrorSupportsKeyedLiteral(t *testing.T) {
