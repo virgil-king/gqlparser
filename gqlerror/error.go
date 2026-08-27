@@ -1,6 +1,7 @@
 package gqlerror
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -74,7 +75,7 @@ func (err *Error) SourceLocations() []SourceLocation {
 }
 
 func (err *Error) validateSourceLocations() {
-	if len(err.sourceLocations) == 0 {
+	if err.sourceLocationsMatch() {
 		return
 	}
 	if len(err.sourceLocations) != len(err.Locations) {
@@ -91,6 +92,29 @@ func (err *Error) validateSourceLocations() {
 	}
 }
 
+func (err *Error) sourceLocationsMatch() bool {
+	if len(err.sourceLocations) == 0 {
+		return true
+	}
+	if len(err.sourceLocations) != len(err.Locations) {
+		return false
+	}
+	for i, sourceLocation := range err.sourceLocations {
+		if sourceLocation.Location != err.Locations[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// UnmarshalJSON discards source documents because GraphQL error JSON does not
+// encode them.
+func (err *Error) UnmarshalJSON(data []byte) error {
+	type errorWithoutMethods Error
+	err.sourceLocations = nil
+	return json.Unmarshal(data, (*errorWithoutMethods)(err))
+}
+
 type List []*Error
 
 func (err *Error) Error() string {
@@ -98,14 +122,20 @@ func (err *Error) Error() string {
 	if err == nil {
 		return ""
 	}
-	err.validateSourceLocations()
+	sourceLocations := err.sourceLocations
+	if !err.sourceLocationsMatch() {
+		sourceLocations = nil
+	}
 	filename := ""
-	if len(err.sourceLocations) == 0 {
+	if len(sourceLocations) == 0 {
 		filename, _ = err.Extensions["file"].(string)
-	} else if err.sourceLocations[0].Source != nil {
-		filename = err.sourceLocations[0].Source.Name
-	} else if len(err.sourceLocations) == 1 {
+	} else if len(sourceLocations) == 1 {
 		filename, _ = err.Extensions["file"].(string)
+		if filename == "" && sourceLocations[0].Source != nil {
+			filename = sourceLocations[0].Source.Name
+		}
+	} else if sourceLocations[0].Source != nil {
+		filename = sourceLocations[0].Source.Name
 	}
 	if filename == "" {
 		filename = "input"

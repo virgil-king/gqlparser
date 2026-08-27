@@ -88,6 +88,17 @@ func TestErrorFormatting(t *testing.T) {
 
 		require.Equal(t, `input:1:2: kabloom`, err.Error())
 	})
+
+	t.Run("with overridden single-location file", func(t *testing.T) {
+		err := ErrorPosf(&ast.Position{
+			Src:    &ast.Source{Name: "query.graphql"},
+			Line:   1,
+			Column: 2,
+		}, "kabloom")
+		err.SetFile("override.graphql")
+
+		require.Equal(t, `override.graphql:1:2: kabloom`, err.Error())
+	})
 }
 
 func TestErrorPosition(t *testing.T) {
@@ -166,6 +177,22 @@ func TestAddLocationHydratesJSONLocations(t *testing.T) {
 	}, err.SourceLocations())
 }
 
+func TestUnmarshalJSONClearsSourceLocations(t *testing.T) {
+	err := &Error{Message: "first"}
+	err.AddLocation(
+		Location{Line: 1, Column: 2},
+		&ast.Source{Name: "first.graphql"},
+	)
+
+	require.NoError(t, json.Unmarshal(
+		[]byte(`{"message":"second","locations":[{"line":1,"column":2}]}`),
+		err,
+	))
+
+	require.Empty(t, err.SourceLocations())
+	require.Equal(t, `input:1:2: second`, err.Error())
+}
+
 func TestSourceLocationsRejectsIndependentLocationChanges(t *testing.T) {
 	t.Run("replacement", func(t *testing.T) {
 		err := &Error{}
@@ -203,6 +230,18 @@ func TestSourceLocationsRejectsIndependentLocationChanges(t *testing.T) {
 			func() { err.SourceLocations() },
 		)
 	})
+}
+
+func TestErrorFormattingToleratesIndependentLocationChanges(t *testing.T) {
+	err := &Error{
+		Message:    "kabloom",
+		Extensions: map[string]any{"file": "second.graphql"},
+	}
+	err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "first.graphql"})
+	err.AddLocation(Location{Line: 3, Column: 4}, &ast.Source{Name: "second.graphql"})
+	err.Locations[0] = Location{Line: 5, Column: 6}
+
+	require.Equal(t, `second.graphql:5:6: kabloom`, err.Error())
 }
 
 func TestList_As(t *testing.T) {
