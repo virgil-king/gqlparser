@@ -77,6 +77,17 @@ func TestErrorFormatting(t *testing.T) {
 
 		require.Equal(t, `input:1:2: kabloom`, err.Error())
 	})
+
+	t.Run("with source-less primary location", func(t *testing.T) {
+		err := &Error{
+			Message:    "kabloom",
+			Extensions: map[string]any{"file": "second.graphql"},
+		}
+		err.AddLocation(Location{Line: 1, Column: 2}, nil)
+		err.AddLocation(Location{Line: 3, Column: 4}, &ast.Source{Name: "second.graphql"})
+
+		require.Equal(t, `input:1:2: kabloom`, err.Error())
+	})
 }
 
 func TestErrorPosition(t *testing.T) {
@@ -125,6 +136,73 @@ func TestSourceLocationsReturnsCopy(t *testing.T) {
 
 	require.Equal(t, Location{Line: 1, Column: 2}, err.SourceLocations()[0].Location)
 	require.Same(t, source, err.SourceLocations()[0].Source)
+}
+
+func TestAddLocationHydratesExistingLocations(t *testing.T) {
+	source := &ast.Source{Name: "second.graphql"}
+	err := &Error{Locations: []Location{{Line: 1, Column: 2}}}
+
+	err.AddLocation(Location{Line: 3, Column: 4}, source)
+
+	require.Equal(t, []SourceLocation{
+		{Location: Location{Line: 1, Column: 2}},
+		{Location: Location{Line: 3, Column: 4}, Source: source},
+	}, err.SourceLocations())
+}
+
+func TestAddLocationHydratesJSONLocations(t *testing.T) {
+	source := &ast.Source{Name: "second.graphql"}
+	var err Error
+	require.NoError(t, json.Unmarshal(
+		[]byte(`{"message":"kabloom","locations":[{"line":1,"column":2}]}`),
+		&err,
+	))
+
+	err.AddLocation(Location{Line: 3, Column: 4}, source)
+
+	require.Equal(t, []SourceLocation{
+		{Location: Location{Line: 1, Column: 2}},
+		{Location: Location{Line: 3, Column: 4}, Source: source},
+	}, err.SourceLocations())
+}
+
+func TestSourceLocationsRejectsIndependentLocationChanges(t *testing.T) {
+	t.Run("replacement", func(t *testing.T) {
+		err := &Error{}
+		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "query.graphql"})
+		err.Locations[0] = Location{Line: 3, Column: 4}
+
+		require.PanicsWithValue(
+			t,
+			"gqlerror: location 0 changed independently of its source",
+			func() { err.SourceLocations() },
+		)
+	})
+
+	t.Run("reordering", func(t *testing.T) {
+		err := &Error{}
+		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "first.graphql"})
+		err.AddLocation(Location{Line: 3, Column: 4}, &ast.Source{Name: "second.graphql"})
+		err.Locations[0], err.Locations[1] = err.Locations[1], err.Locations[0]
+
+		require.PanicsWithValue(
+			t,
+			"gqlerror: location 0 changed independently of its source",
+			func() { err.SourceLocations() },
+		)
+	})
+
+	t.Run("clearing", func(t *testing.T) {
+		err := &Error{}
+		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "query.graphql"})
+		err.Locations = nil
+
+		require.PanicsWithValue(
+			t,
+			"gqlerror: location count 0 does not match source location count 1",
+			func() { err.SourceLocations() },
+		)
+	})
 }
 
 func TestList_As(t *testing.T) {

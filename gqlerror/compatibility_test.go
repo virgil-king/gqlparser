@@ -26,3 +26,9 @@ func TestSourceLocationsAreAvailableOutsidePackage(t *testing.T) {
 	require.Equal(t, gqlerror.Location{Line: 1, Column: 2}, locations[0].Location)
 	require.Same(t, source, locations[0].Source)
 }
+
+func TestErrorSupportsKeyedLiteral(t *testing.T) {
+	err := gqlerror.Error{Message: "kabloom"}
+
+	require.Equal(t, "kabloom", err.Message)
+}

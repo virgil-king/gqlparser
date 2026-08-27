@@ -46,6 +46,13 @@ type SourceLocation struct {
 // AddLocation appends a location to the GraphQL response and its source-aware
 // representation.
 func (err *Error) AddLocation(location Location, source *ast.Source) {
+	err.validateSourceLocations()
+	if len(err.sourceLocations) == 0 && len(err.Locations) > 0 {
+		err.sourceLocations = make([]SourceLocation, len(err.Locations))
+		for i, existing := range err.Locations {
+			err.sourceLocations[i].Location = existing
+		}
+	}
 	err.Locations = append(err.Locations, location)
 	err.sourceLocations = append(err.sourceLocations, SourceLocation{
 		Location: location,
@@ -54,14 +61,34 @@ func (err *Error) AddLocation(location Location, source *ast.Source) {
 }
 
 // SourceLocations returns a shallow copy of the source-aware locations in
-// validation order.
+// validation order. It panics when Locations changed independently after a
+// source-aware location was added.
 func (err *Error) SourceLocations() []SourceLocation {
 	if err == nil {
 		return nil
 	}
+	err.validateSourceLocations()
 	locations := make([]SourceLocation, len(err.sourceLocations))
 	copy(locations, err.sourceLocations)
 	return locations
+}
+
+func (err *Error) validateSourceLocations() {
+	if len(err.sourceLocations) == 0 {
+		return
+	}
+	if len(err.sourceLocations) != len(err.Locations) {
+		panic(fmt.Sprintf(
+			"gqlerror: location count %d does not match source location count %d",
+			len(err.Locations),
+			len(err.sourceLocations),
+		))
+	}
+	for i, sourceLocation := range err.sourceLocations {
+		if sourceLocation.Location != err.Locations[i] {
+			panic(fmt.Sprintf("gqlerror: location %d changed independently of its source", i))
+		}
+	}
 }
 
 type List []*Error
@@ -71,11 +98,13 @@ func (err *Error) Error() string {
 	if err == nil {
 		return ""
 	}
+	err.validateSourceLocations()
 	filename := ""
-	hasPrimarySource := len(err.sourceLocations) > 0 && err.sourceLocations[0].Source != nil
-	if hasPrimarySource {
+	if len(err.sourceLocations) == 0 {
+		filename, _ = err.Extensions["file"].(string)
+	} else if err.sourceLocations[0].Source != nil {
 		filename = err.sourceLocations[0].Source.Name
-	} else {
+	} else if len(err.sourceLocations) == 1 {
 		filename, _ = err.Extensions["file"].(string)
 	}
 	if filename == "" {
