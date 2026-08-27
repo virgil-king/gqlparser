@@ -58,34 +58,22 @@ func TestErrorFormatting(t *testing.T) {
 
 	t.Run("with multiple sources", func(t *testing.T) {
 		err := &Error{
-			Message: "kabloom",
-			Locations: []Location{
-				{Line: 1, Column: 2},
-				{Line: 3, Column: 4},
-			},
-			LocationSources: []*ast.Source{
-				{Name: "first.graphql"},
-				{Name: "second.graphql"},
-			},
+			Message:    "kabloom",
 			Extensions: map[string]any{"file": "second.graphql"},
 		}
+		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{Name: "first.graphql"})
+		err.AddLocation(Location{Line: 3, Column: 4}, &ast.Source{Name: "second.graphql"})
 
 		require.Equal(t, `first.graphql:1:2: kabloom`, err.Error())
 	})
 
 	t.Run("with unnamed primary source", func(t *testing.T) {
 		err := &Error{
-			Message: "kabloom",
-			Locations: []Location{
-				{Line: 1, Column: 2},
-				{Line: 3, Column: 4},
-			},
-			LocationSources: []*ast.Source{
-				{},
-				{Name: "second.graphql"},
-			},
+			Message:    "kabloom",
 			Extensions: map[string]any{"file": "second.graphql"},
 		}
+		err.AddLocation(Location{Line: 1, Column: 2}, &ast.Source{})
+		err.AddLocation(Location{Line: 3, Column: 4}, &ast.Source{Name: "second.graphql"})
 
 		require.Equal(t, `input:1:2: kabloom`, err.Error())
 	})
@@ -109,24 +97,34 @@ func TestErrorPosition(t *testing.T) {
 		err := ErrorPosf(position, "kabloom")
 
 		require.Len(t, err.Locations, 1)
-		require.Len(t, err.LocationSources, 1)
-		require.Same(t, source, err.LocationSources[0])
+		sourceLocations := err.SourceLocations()
+		require.Len(t, sourceLocations, 1)
+		require.Equal(t, Location{Line: 1, Column: 11}, sourceLocations[0].Location)
+		require.Same(t, source, sourceLocations[0].Source)
 	})
 }
 
-func TestLocationSourcesAreNotSerialized(t *testing.T) {
+func TestSourceLocationsAreNotSerialized(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql", Input: "query Q { field }"}
-	err := &Error{
-		Message: "kabloom",
-		Locations: []Location{{
-			Line: 1, Column: 11,
-		}},
-		LocationSources: []*ast.Source{source},
-	}
+	err := &Error{Message: "kabloom"}
+	err.AddLocation(Location{Line: 1, Column: 11}, source)
 
 	encoded, errEncoding := json.Marshal(err)
 	require.NoError(t, errEncoding)
 	require.JSONEq(t, `{"message":"kabloom","locations":[{"line":1,"column":11}]}`, string(encoded))
+}
+
+func TestSourceLocationsReturnsCopy(t *testing.T) {
+	source := &ast.Source{Name: "query.graphql"}
+	err := &Error{}
+	err.AddLocation(Location{Line: 1, Column: 2}, source)
+
+	locations := err.SourceLocations()
+	locations[0].Location.Line = 99
+	locations[0].Source = nil
+
+	require.Equal(t, Location{Line: 1, Column: 2}, err.SourceLocations()[0].Location)
+	require.Same(t, source, err.SourceLocations()[0].Source)
 }
 
 func TestList_As(t *testing.T) {

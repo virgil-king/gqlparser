@@ -88,9 +88,12 @@ type Query {
 	}
 	require.NotNil(t, found, "expected a VariablesInAllowedPosition error, got %v", errs)
 	require.Len(t, found.Locations, 2)
-	require.Len(t, found.LocationSources, 2)
-	require.Same(t, querySource, found.LocationSources[0])
-	require.Same(t, fragmentSource, found.LocationSources[1])
+	sourceLocations := found.SourceLocations()
+	require.Len(t, sourceLocations, 2)
+	require.Equal(t, found.Locations[0], sourceLocations[0].Location)
+	require.Equal(t, found.Locations[1], sourceLocations[1].Location)
+	require.Same(t, querySource, sourceLocations[0].Source)
+	require.Same(t, fragmentSource, sourceLocations[1].Source)
 	require.Equal(t, 1, found.Locations[0].Line)
 	require.Equal(t, 1, found.Locations[1].Line)
 	require.Equal(t, 14, found.Locations[0].Column)
@@ -131,8 +134,10 @@ func TestSingleLocationValidationRetainsSource(t *testing.T) {
 	}
 	require.NotNil(t, found)
 	require.Len(t, found.Locations, 1)
-	require.Len(t, found.LocationSources, 1)
-	require.Same(t, source, found.LocationSources[0])
+	sourceLocations := found.SourceLocations()
+	require.Len(t, sourceLocations, 1)
+	require.Equal(t, found.Locations[0], sourceLocations[0].Location)
+	require.Same(t, source, sourceLocations[0].Source)
 }
 
 func TestValidationRulesAreIndependent(t *testing.T) {

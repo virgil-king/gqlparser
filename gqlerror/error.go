@@ -11,14 +11,11 @@ import (
 
 // Error is the standard graphql error type described in https://spec.graphql.org/draft/#sec-Errors
 type Error struct {
-	Err       error      `json:"-"`
-	Message   string     `json:"message"`
-	Path      ast.Path   `json:"path,omitempty"`
-	Locations []Location `json:"locations,omitempty"`
-	// LocationSources aligns source documents with Locations by index. An entry
-	// may be nil when the corresponding location has no source document.
-	// Keeping the sources on Error preserves Location's two-field literal shape.
-	LocationSources []*ast.Source  `json:"-"`
+	Err             error      `json:"-"`
+	Message         string     `json:"message"`
+	Path            ast.Path   `json:"path,omitempty"`
+	Locations       []Location `json:"locations,omitempty"`
+	sourceLocations []SourceLocation
 	Extensions      map[string]any `json:"extensions,omitempty"`
 	Rule            string         `json:"-"`
 }
@@ -39,6 +36,34 @@ type Location struct {
 	Column int `json:"column,omitempty"`
 }
 
+// SourceLocation identifies a location and its source document. Source is nil
+// when the location has no source document.
+type SourceLocation struct {
+	Location Location
+	Source   *ast.Source
+}
+
+// AddLocation appends a location to the GraphQL response and its source-aware
+// representation.
+func (err *Error) AddLocation(location Location, source *ast.Source) {
+	err.Locations = append(err.Locations, location)
+	err.sourceLocations = append(err.sourceLocations, SourceLocation{
+		Location: location,
+		Source:   source,
+	})
+}
+
+// SourceLocations returns a shallow copy of the source-aware locations in
+// validation order.
+func (err *Error) SourceLocations() []SourceLocation {
+	if err == nil {
+		return nil
+	}
+	locations := make([]SourceLocation, len(err.sourceLocations))
+	copy(locations, err.sourceLocations)
+	return locations
+}
+
 type List []*Error
 
 func (err *Error) Error() string {
@@ -47,9 +72,9 @@ func (err *Error) Error() string {
 		return ""
 	}
 	filename := ""
-	hasPrimarySource := len(err.LocationSources) > 0 && err.LocationSources[0] != nil
+	hasPrimarySource := len(err.sourceLocations) > 0 && err.sourceLocations[0].Source != nil
 	if hasPrimarySource {
-		filename = err.LocationSources[0].Name
+		filename = err.sourceLocations[0].Source.Name
 	} else {
 		filename, _ = err.Extensions["file"].(string)
 	}
@@ -184,27 +209,15 @@ func ErrorPosf(pos *ast.Position, message string, args ...any) *Error {
 			args...,
 		)
 	}
-	err := ErrorLocf(
-		pos.Src.Name,
-		pos.Line,
-		pos.Column,
-		message,
-		args...,
-	)
-	err.LocationSources = []*ast.Source{pos.Src}
+	err := &Error{Message: fmt.Sprintf(message, args...)}
+	err.SetFile(pos.Src.Name)
+	err.AddLocation(Location{Line: pos.Line, Column: pos.Column}, pos.Src)
 	return err
 }
 
 func ErrorLocf(file string, line, col int, message string, args ...any) *Error {
-	var extensions map[string]any
-	if file != "" {
-		extensions = map[string]any{"file": file}
-	}
-	return &Error{
-		Message:    fmt.Sprintf(message, args...),
-		Extensions: extensions,
-		Locations: []Location{
-			{Line: line, Column: col},
-		},
-	}
+	err := &Error{Message: fmt.Sprintf(message, args...)}
+	err.SetFile(file)
+	err.AddLocation(Location{Line: line, Column: col}, nil)
+	return err
 }
