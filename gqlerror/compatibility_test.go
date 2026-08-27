@@ -26,10 +26,10 @@ func TestErrorWithSourcesIsAvailableOutsidePackage(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql"}
 	err := gqlerror.NewErrorWithSources(
 		&gqlerror.Error{Locations: []gqlerror.Location{{Line: 1, Column: 2}}},
-		[]*ast.Source{source},
+		[]gqlerror.SourceLocation{{Line: 1, Column: 2, Source: source}},
 	)
 
-	require.Len(t, err.LocationSources, 1)
-	require.Same(t, source, err.LocationSources[0])
-	require.Equal(t, gqlerror.Location{Line: 1, Column: 2}, err.Locations[0])
+	require.Len(t, err.Locations, 1)
+	require.Same(t, source, err.Locations[0].Source)
+	require.Equal(t, gqlerror.SourceLocation{Line: 1, Column: 2, Source: source}, err.Locations[0])
 }

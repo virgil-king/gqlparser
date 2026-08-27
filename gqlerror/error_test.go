@@ -98,7 +98,7 @@ func TestErrorWithSourcesAreNotSerialized(t *testing.T) {
 			Message:   "kabloom",
 			Locations: []Location{{Line: 1, Column: 11}},
 		},
-		[]*ast.Source{source},
+		[]SourceLocation{{Line: 1, Column: 11, Source: source}},
 	)
 
 	encoded, errEncoding := json.Marshal(err)
@@ -109,7 +109,7 @@ func TestErrorWithSourcesAreNotSerialized(t *testing.T) {
 func TestErrorWithSourcesUnmarshalClearsSources(t *testing.T) {
 	err := NewErrorWithSources(
 		&Error{Message: "first", Locations: []Location{{Line: 1, Column: 2}}},
-		[]*ast.Source{{Name: "first.graphql"}},
+		[]SourceLocation{{Line: 1, Column: 2, Source: &ast.Source{Name: "first.graphql"}}},
 	)
 
 	require.NoError(t, json.Unmarshal(
@@ -118,47 +118,59 @@ func TestErrorWithSourcesUnmarshalClearsSources(t *testing.T) {
 	))
 
 	require.Equal(t, "second", err.Message)
-	require.Equal(t, []Location{{Line: 3, Column: 4}}, err.Locations)
-	require.Empty(t, err.LocationSources)
-	require.Empty(t, err.SourceLocations())
+	require.Equal(t, []SourceLocation{{Line: 3, Column: 4}}, err.Locations)
+	require.Equal(t, err.Locations, err.SourceLocations())
+	require.Nil(t, err.Locations[0].Source)
 }
 
 func TestErrorWithSourcesSetFileOverridesSourceName(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql"}
 	err := NewErrorWithSources(
 		&Error{Message: "kabloom", Locations: []Location{{Line: 1, Column: 2}}},
-		[]*ast.Source{source},
+		[]SourceLocation{{Line: 1, Column: 2, Source: source}},
 	)
 	err.SetFile("override.graphql")
 
 	require.Equal(t, `override.graphql:1:2: kabloom`, err.Error())
 }
 
+func TestErrorWithSourcesFormatsDirectCanonicalLocations(t *testing.T) {
+	err := &ErrorWithSources{
+		Message: "kabloom",
+		Locations: []SourceLocation{
+			{Line: 1, Column: 2, Source: &ast.Source{Name: "first.graphql"}},
+			{Line: 3, Column: 4, Source: &ast.Source{Name: "second.graphql"}},
+		},
+	}
+
+	require.Equal(t, `first.graphql:1:2: kabloom`, err.Error())
+}
+
 func TestErrorWithSourcesReturnsDerivedCopy(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql"}
 	err := NewErrorWithSources(
 		&Error{Locations: []Location{{Line: 1, Column: 2}}},
-		[]*ast.Source{source},
+		[]SourceLocation{{Line: 1, Column: 2, Source: source}},
 	)
 
 	locations := err.SourceLocations()
-	locations[0].Location.Line = 99
+	locations[0].Line = 99
 	locations[0].Source = nil
 
-	require.Equal(t, Location{Line: 1, Column: 2}, err.SourceLocations()[0].Location)
+	require.Equal(t, SourceLocation{Line: 1, Column: 2, Source: source}, err.SourceLocations()[0])
 	require.Same(t, source, err.SourceLocations()[0].Source)
 }
 
-func TestErrorWithSourcesRejectsMisalignedLocationSources(t *testing.T) {
-	err := NewErrorWithSources(
-		&Error{Locations: []Location{{Line: 1, Column: 2}}},
-		[]*ast.Source{&ast.Source{Name: "query.graphql"}, nil},
-	)
-
+func TestNewErrorWithSourcesRejectsMismatchedLocations(t *testing.T) {
 	require.PanicsWithValue(
 		t,
-		"gqlerror: location count 1 does not match source count 2",
-		func() { err.SourceLocations() },
+		"gqlerror: source location count 2 does not match location count 1",
+		func() {
+			NewErrorWithSources(
+				&Error{Locations: []Location{{Line: 1, Column: 2}}},
+				[]SourceLocation{{Line: 1, Column: 2}, {Line: 3, Column: 4}},
+			)
+		},
 	)
 }
 

@@ -36,42 +36,69 @@ type Location struct {
 	Column int `json:"column,omitempty"`
 }
 
-// SourceLocation pairs a GraphQL location with its source document. Source is
-// nil when the location has no source document.
+// SourceLocation pairs a GraphQL line and column with its source document.
+// Source is nil when the location has no source document.
 type SourceLocation struct {
-	Location Location
-	Source   *ast.Source
+	Line   int         `json:"line,omitempty"`
+	Column int         `json:"column,omitempty"`
+	Source *ast.Source `json:"-"`
 }
 
 // ErrorWithSources is the source-aware validation error returned by the
 // opt-in validator API. It retains the standard GraphQL error fields while
-// LocationSources aligns source documents with Locations. LocationSources is
-// omitted from JSON along with the source documents.
+// Locations stores each location together with its source document. Source is
+// omitted from JSON, leaving the standard GraphQL line and column fields.
 type ErrorWithSources struct {
-	Err             error          `json:"-"`
-	Message         string         `json:"message"`
-	Path            ast.Path       `json:"path,omitempty"`
-	Locations       []Location     `json:"locations,omitempty"`
-	LocationSources []*ast.Source  `json:"-"`
-	Extensions      map[string]any `json:"extensions,omitempty"`
-	Rule            string         `json:"-"`
+	Err        error            `json:"-"`
+	Message    string           `json:"message"`
+	Path       ast.Path         `json:"path,omitempty"`
+	Locations  []SourceLocation `json:"locations,omitempty"`
+	Extensions map[string]any   `json:"extensions,omitempty"`
+	Rule       string           `json:"-"`
+
+	fileOverride bool
 }
 
-// NewErrorWithSources pairs an existing GraphQL error with its source
-// documents. The source slice is copied so callers cannot change the error's
+// NewErrorWithSources pairs an existing GraphQL error with source-aware
+// locations. The location slice is copied so callers cannot change the error's
 // source associations by mutating their input slice.
-func NewErrorWithSources(err *Error, sources []*ast.Source) *ErrorWithSources {
+func NewErrorWithSources(err *Error, locations []SourceLocation) *ErrorWithSources {
 	if err == nil {
 		return nil
 	}
+	if len(locations) > 0 && len(err.Locations) > 0 {
+		if len(locations) != len(err.Locations) {
+			panic(fmt.Sprintf(
+				"gqlerror: source location count %d does not match location count %d",
+				len(locations),
+				len(err.Locations),
+			))
+		}
+		for i, location := range err.Locations {
+			if locations[i].Line != location.Line || locations[i].Column != location.Column {
+				panic(fmt.Sprintf(
+					"gqlerror: source location %d does not match location coordinates",
+					i,
+				))
+			}
+		}
+	}
+	if len(locations) == 0 && len(err.Locations) > 0 {
+		locations = make([]SourceLocation, len(err.Locations))
+		for i, location := range err.Locations {
+			locations[i] = SourceLocation{
+				Line:   location.Line,
+				Column: location.Column,
+			}
+		}
+	}
 	return &ErrorWithSources{
-		Err:             err.Err,
-		Message:         err.Message,
-		Path:            err.Path,
-		Locations:       append([]Location(nil), err.Locations...),
-		LocationSources: append([]*ast.Source(nil), sources...),
-		Extensions:      err.Extensions,
-		Rule:            err.Rule,
+		Err:        err.Err,
+		Message:    err.Message,
+		Path:       err.Path,
+		Locations:  append([]SourceLocation(nil), locations...),
+		Extensions: err.Extensions,
+		Rule:       err.Rule,
 	}
 }
 
@@ -79,7 +106,8 @@ func NewErrorWithSources(err *Error, sources []*ast.Source) *ErrorWithSources {
 // encode them.
 func (err *ErrorWithSources) UnmarshalJSON(data []byte) error {
 	type errorWithoutMethods ErrorWithSources
-	err.LocationSources = nil
+	err.Locations = nil
+	err.fileOverride = false
 	return json.Unmarshal(data, (*errorWithoutMethods)(err))
 }
 
@@ -91,35 +119,47 @@ func (err *ErrorWithSources) SetFile(file string) {
 		err.Extensions = map[string]any{}
 	}
 	err.Extensions["file"] = file
+	err.fileOverride = true
 }
 
 func (err *ErrorWithSources) Error() string {
 	if err == nil {
 		return ""
 	}
+	locations := make([]Location, len(err.Locations))
+	for i, sourceLocation := range err.Locations {
+		locations[i] = Location{
+			Line:   sourceLocation.Line,
+			Column: sourceLocation.Column,
+		}
+	}
 	base := &Error{
 		Err:        err.Err,
 		Message:    err.Message,
 		Path:       err.Path,
-		Locations:  err.Locations,
+		Locations:  locations,
 		Extensions: cloneExtensions(err.Extensions),
 		Rule:       err.Rule,
 	}
 	if base.Extensions == nil {
 		base.Extensions = map[string]any{}
 	}
-	if len(err.Locations) == 1 && len(err.LocationSources) == len(err.Locations) {
-		filename, _ := base.Extensions["file"].(string)
+	filename, _ := base.Extensions["file"].(string)
+	if len(err.Locations) == 1 {
 		if filename == "" {
-			if source := err.LocationSources[0]; source != nil && source.Name != "" {
-				base.Extensions["file"] = source.Name
+			if source := err.Locations[0].Source; source != nil && source.Name != "" {
+				filename = source.Name
 			}
 		}
-	} else if len(err.Locations) > 1 && len(err.LocationSources) == len(err.Locations) {
-		delete(base.Extensions, "file")
-		if source := err.LocationSources[0]; source != nil && source.Name != "" {
-			base.Extensions["file"] = source.Name
+	} else if len(err.Locations) > 1 && !err.fileOverride {
+		if source := err.Locations[0].Source; source != nil {
+			filename = source.Name
 		}
+	}
+	if filename != "" {
+		base.Extensions["file"] = filename
+	} else {
+		delete(base.Extensions, "file")
 	}
 	return base.Error()
 }
@@ -150,26 +190,13 @@ func (err *ErrorWithSources) AsError() error {
 }
 
 // SourceLocations returns a shallow copy of the source-aware locations in
-// validation order. It panics when LocationSources is not aligned with
-// Locations.
+// validation order.
 func (err *ErrorWithSources) SourceLocations() []SourceLocation {
-	if err == nil || len(err.LocationSources) == 0 {
+	if err == nil || len(err.Locations) == 0 {
 		return nil
 	}
-	if len(err.LocationSources) != len(err.Locations) {
-		panic(fmt.Sprintf(
-			"gqlerror: location count %d does not match source count %d",
-			len(err.Locations),
-			len(err.LocationSources),
-		))
-	}
 	locations := make([]SourceLocation, len(err.Locations))
-	for i, location := range err.Locations {
-		locations[i] = SourceLocation{
-			Location: location,
-			Source:   err.LocationSources[i],
-		}
-	}
+	copy(locations, err.Locations)
 	return locations
 }
 

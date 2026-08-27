@@ -9,17 +9,17 @@ import (
 )
 
 type sourceCapture struct {
-	locations []gqlerror.Location
-	sources   []*ast.Source
+	locations []gqlerror.SourceLocation
 }
 
 var sourceCaptures sync.Map // map[*gqlerror.Error]*sourceCapture
 
 // CaptureSourceLocations applies error options while recording the source
-// documents supplied to At. It returns sources aligned with err.Locations.
+// documents supplied to At. It returns source-aware locations in the same
+// order as err.Locations.
 // Source-aware validation uses this helper; the regular validation API does
 // not install a capture and keeps its existing behavior.
-func CaptureSourceLocations(err *gqlerror.Error, apply func()) []*ast.Source {
+func CaptureSourceLocations(err *gqlerror.Error, apply func()) []gqlerror.SourceLocation {
 	if err == nil {
 		panic("gqlparser: cannot capture source locations for a nil error")
 	}
@@ -28,19 +28,26 @@ func CaptureSourceLocations(err *gqlerror.Error, apply func()) []*ast.Source {
 	defer sourceCaptures.Delete(err)
 
 	apply()
-	if len(capture.locations) == 0 {
+	if len(err.Locations) == 0 {
 		return nil
 	}
-	sources := make([]*ast.Source, len(err.Locations))
+	locations := make([]gqlerror.SourceLocation, len(err.Locations))
+	for i, location := range err.Locations {
+		locations[i] = gqlerror.SourceLocation{
+			Line:   location.Line,
+			Column: location.Column,
+		}
+	}
 	recorded := 0
 	for i, location := range err.Locations {
 		if recorded == len(capture.locations) {
 			break
 		}
-		if capture.locations[recorded] != location {
+		captured := capture.locations[recorded]
+		if captured.Line != location.Line || captured.Column != location.Column {
 			continue
 		}
-		sources[i] = capture.sources[recorded]
+		locations[i].Source = captured.Source
 		recorded++
 	}
 	if recorded != len(capture.locations) {
@@ -49,7 +56,7 @@ func CaptureSourceLocations(err *gqlerror.Error, apply func()) []*ast.Source {
 			recorded,
 		))
 	}
-	return sources
+	return locations
 }
 
 func recordSourceLocation(err *gqlerror.Error, location gqlerror.Location, source *ast.Source) {
@@ -58,6 +65,9 @@ func recordSourceLocation(err *gqlerror.Error, location gqlerror.Location, sourc
 		return
 	}
 	capture := value.(*sourceCapture)
-	capture.locations = append(capture.locations, location)
-	capture.sources = append(capture.sources, source)
+	capture.locations = append(capture.locations, gqlerror.SourceLocation{
+		Line:   location.Line,
+		Column: location.Column,
+		Source: source,
+	})
 }

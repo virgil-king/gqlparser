@@ -89,11 +89,8 @@ type Query {
 	}
 	require.NotNil(t, found, "expected a VariablesInAllowedPosition error, got %v", errs)
 	require.Len(t, found.Locations, 2)
-	require.Len(t, found.LocationSources, 2)
-	require.Equal(t, found.Locations[0], gqlerror.Location{Line: 1, Column: 14})
-	require.Equal(t, found.Locations[1], gqlerror.Location{Line: 1, Column: 56})
-	require.Same(t, querySource, found.LocationSources[0])
-	require.Same(t, fragmentSource, found.LocationSources[1])
+	require.Equal(t, gqlerror.SourceLocation{Line: 1, Column: 14, Source: querySource}, found.Locations[0])
+	require.Equal(t, gqlerror.SourceLocation{Line: 1, Column: 56, Source: fragmentSource}, found.Locations[1])
 	require.Equal(t, 1, found.Locations[0].Line)
 	require.Equal(t, 1, found.Locations[1].Line)
 	require.Equal(t, 14, found.Locations[0].Column)
@@ -134,9 +131,7 @@ func TestSingleLocationValidationRetainsSource(t *testing.T) {
 	}
 	require.NotNil(t, found)
 	require.Len(t, found.Locations, 1)
-	require.Len(t, found.LocationSources, 1)
-	require.Equal(t, found.Locations[0], gqlerror.Location{Line: 1, Column: 16})
-	require.Same(t, source, found.LocationSources[0])
+	require.Equal(t, gqlerror.SourceLocation{Line: 1, Column: 16, Source: source}, found.Locations[0])
 }
 
 func TestValidateWithRulesWithSourcesRetainsOrderedCustomRuleLocations(t *testing.T) {
@@ -177,10 +172,11 @@ func TestValidateWithRulesWithSourcesRetainsOrderedCustomRuleLocations(t *testin
 		require.Len(t, errs, 2)
 		require.Equal(t, "AlphaRule", errs[0].Rule)
 		require.Equal(t, "MultiRule", errs[1].Rule)
-		require.Equal(t, []gqlerror.Location{{Line: 6, Column: 7}}, errs[0].Locations)
-		require.Equal(t, []*ast.Source{secondSource}, errs[0].LocationSources)
-		require.Equal(t, []gqlerror.Location{{Line: 2, Column: 3}, {Line: 4, Column: 5}}, errs[1].Locations)
-		require.Equal(t, []*ast.Source{firstSource, secondSource}, errs[1].LocationSources)
+		require.Equal(t, []gqlerror.SourceLocation{{Line: 6, Column: 7, Source: secondSource}}, errs[0].Locations)
+		require.Equal(t, []gqlerror.SourceLocation{
+			{Line: 2, Column: 3, Source: firstSource},
+			{Line: 4, Column: 5, Source: secondSource},
+		}, errs[1].Locations)
 	}
 }
 
@@ -205,8 +201,7 @@ func TestValidateWithRulesWithSourcesUsesDefaultRules(t *testing.T) {
 	}
 
 	require.NotNil(t, found)
-	require.Equal(t, []gqlerror.Location{{Line: 1, Column: 15}}, found.Locations)
-	require.Equal(t, []*ast.Source{source}, found.LocationSources)
+	require.Equal(t, []gqlerror.SourceLocation{{Line: 1, Column: 15, Source: source}}, found.Locations)
 }
 
 func TestValidationRulesAreIndependent(t *testing.T) {
