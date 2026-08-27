@@ -123,30 +123,6 @@ func TestErrorWithSourcesUnmarshalClearsSources(t *testing.T) {
 	require.Nil(t, err.Locations[0].Source)
 }
 
-func TestErrorWithSourcesSetFileOverridesSourceName(t *testing.T) {
-	source := &ast.Source{Name: "query.graphql"}
-	err := NewErrorWithSources(
-		&Error{Message: "kabloom", Locations: []Location{{Line: 1, Column: 2}}},
-		[]SourceLocation{{Line: 1, Column: 2, Source: source}},
-	)
-	err.SetFile("override.graphql")
-
-	require.Equal(t, `override.graphql:1:2: kabloom`, err.Error())
-}
-
-func TestErrorWithSourcesSetFileOverridesPrimarySourceForMultipleLocations(t *testing.T) {
-	err := &ErrorWithSources{
-		Message: "kabloom",
-		Locations: []SourceLocation{
-			{Line: 1, Column: 2, Source: &ast.Source{Name: "first.graphql"}},
-			{Line: 3, Column: 4, Source: &ast.Source{Name: "second.graphql"}},
-		},
-	}
-	err.SetFile("override.graphql")
-
-	require.Equal(t, `override.graphql:1:2: kabloom`, err.Error())
-}
-
 func TestErrorWithSourcesFormatsDirectCanonicalLocations(t *testing.T) {
 	err := &ErrorWithSources{
 		Message: "kabloom",

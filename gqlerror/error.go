@@ -57,7 +57,6 @@ type ErrorWithSources struct {
 	Rule       string           `json:"-"`
 
 	legacyLocations bool
-	fileOverride    bool
 }
 
 // NewErrorWithSources pairs an existing GraphQL error with source-aware
@@ -111,19 +110,7 @@ func (err *ErrorWithSources) UnmarshalJSON(data []byte) error {
 	type errorWithoutMethods ErrorWithSources
 	err.Locations = nil
 	err.legacyLocations = true
-	err.fileOverride = false
 	return json.Unmarshal(data, (*errorWithoutMethods)(err))
-}
-
-func (err *ErrorWithSources) SetFile(file string) {
-	if file == "" {
-		return
-	}
-	if err.Extensions == nil {
-		err.Extensions = map[string]any{}
-	}
-	err.Extensions["file"] = file
-	err.fileOverride = true
 }
 
 func (err *ErrorWithSources) Error() string {
@@ -155,7 +142,7 @@ func (err *ErrorWithSources) Error() string {
 				filename = source.Name
 			}
 		}
-	} else if len(err.Locations) > 1 && !err.fileOverride {
+	} else if len(err.Locations) > 1 {
 		if source := err.Locations[0].Source; source != nil {
 			filename = source.Name
 		} else if !err.legacyLocations {
