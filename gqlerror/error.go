@@ -104,16 +104,16 @@ func (err *Error) Error() string {
 		return ""
 	}
 	sourcesAligned := len(err.LocationSources) == len(err.Locations)
-	filename := ""
-	if len(err.Locations) == 0 {
-		filename, _ = err.Extensions["file"].(string)
-	} else if len(err.Locations) == 1 {
-		filename, _ = err.Extensions["file"].(string)
+	filename, _ := err.Extensions["file"].(string)
+	if len(err.Locations) == 1 {
 		if filename == "" && sourcesAligned && err.LocationSources[0] != nil {
 			filename = err.LocationSources[0].Name
 		}
-	} else if sourcesAligned && err.LocationSources[0] != nil {
-		filename = err.LocationSources[0].Name
+	} else if len(err.Locations) > 1 && sourcesAligned {
+		filename = ""
+		if err.LocationSources[0] != nil {
+			filename = err.LocationSources[0].Name
+		}
 	}
 	if filename == "" {
 		filename = "input"
