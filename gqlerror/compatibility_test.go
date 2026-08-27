@@ -16,18 +16,20 @@ func TestLocationSupportsUnkeyedLiteral(t *testing.T) {
 	require.Equal(t, 2, location.Column)
 }
 
-func TestLocationSourcesAreAvailableOutsidePackage(t *testing.T) {
+func TestErrorSupportsUnkeyedLiteral(t *testing.T) {
+	err := gqlerror.Error{nil, "kabloom", nil, nil, nil, ""}
+
+	require.Equal(t, "kabloom", err.Message)
+}
+
+func TestErrorWithSourcesIsAvailableOutsidePackage(t *testing.T) {
 	source := &ast.Source{Name: "query.graphql"}
-	err := &gqlerror.Error{}
-	err.AddLocation(gqlerror.Location{Line: 1, Column: 2}, source)
+	err := gqlerror.NewErrorWithSources(
+		&gqlerror.Error{Locations: []gqlerror.Location{{Line: 1, Column: 2}}},
+		[]*ast.Source{source},
+	)
 
 	require.Len(t, err.LocationSources, 1)
 	require.Same(t, source, err.LocationSources[0])
 	require.Equal(t, gqlerror.Location{Line: 1, Column: 2}, err.Locations[0])
-}
-
-func TestErrorSupportsKeyedLiteral(t *testing.T) {
-	err := gqlerror.Error{Message: "kabloom"}
-
-	require.Equal(t, "kabloom", err.Message)
 }

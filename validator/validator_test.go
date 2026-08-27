@@ -77,9 +77,9 @@ type Query {
 		Operations: query.Operations,
 		Fragments:  fragment.Fragments,
 	}
-	errs := validator.Validate(s, doc)
+	errs := validator.ValidateWithSources(s, doc)
 
-	var found *gqlerror.Error
+	var found *gqlerror.ErrorWithSources
 	for _, err := range errs {
 		if err.Rule == "VariablesInAllowedPosition" {
 			found = err
@@ -124,8 +124,8 @@ func TestSingleLocationValidationRetainsSource(t *testing.T) {
 	query, err := parser.ParseQuery(source)
 	require.NoError(t, err)
 
-	var found *gqlerror.Error
-	for _, err := range validator.Validate(s, query) {
+	var found *gqlerror.ErrorWithSources
+	for _, err := range validator.ValidateWithSources(s, query) {
 		if err.Rule == "FieldsOnCorrectType" {
 			found = err
 			break

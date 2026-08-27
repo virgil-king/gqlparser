@@ -1,7 +1,6 @@
 package gqlerror
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -12,13 +11,12 @@ import (
 
 // Error is the standard graphql error type described in https://spec.graphql.org/draft/#sec-Errors
 type Error struct {
-	Err             error          `json:"-"`
-	Message         string         `json:"message"`
-	Path            ast.Path       `json:"path,omitempty"`
-	Locations       []Location     `json:"locations,omitempty"`
-	LocationSources []*ast.Source  `json:"-"`
-	Extensions      map[string]any `json:"extensions,omitempty"`
-	Rule            string         `json:"-"`
+	Err        error          `json:"-"`
+	Message    string         `json:"message"`
+	Path       ast.Path       `json:"path,omitempty"`
+	Locations  []Location     `json:"locations,omitempty"`
+	Extensions map[string]any `json:"extensions,omitempty"`
+	Rule       string         `json:"-"`
 }
 
 func (err *Error) SetFile(file string) {
@@ -44,31 +42,106 @@ type SourceLocation struct {
 	Source   *ast.Source
 }
 
-// AddLocation appends a location to the GraphQL response and its source-aware
-// representation.
-func (err *Error) AddLocation(location Location, source *ast.Source) {
-	if len(err.LocationSources) == 0 && len(err.Locations) > 0 {
-		err.LocationSources = make([]*ast.Source, len(err.Locations))
-	}
-	if len(err.LocationSources) != len(err.Locations) {
-		panic(fmt.Sprintf(
-			"gqlerror: location count %d does not match source count %d",
-			len(err.Locations),
-			len(err.LocationSources),
-		))
-	}
-	err.Locations = append(err.Locations, location)
-	err.LocationSources = append(err.LocationSources, source)
+// ErrorWithSources is the source-aware validation error returned by the
+// opt-in validator API. It retains the standard GraphQL error fields while
+// LocationSources aligns source documents with Locations. LocationSources is
+// omitted from JSON along with the source documents.
+type ErrorWithSources struct {
+	Err             error          `json:"-"`
+	Message         string         `json:"message"`
+	Path            ast.Path       `json:"path,omitempty"`
+	Locations       []Location     `json:"locations,omitempty"`
+	LocationSources []*ast.Source  `json:"-"`
+	Extensions      map[string]any `json:"extensions,omitempty"`
+	Rule            string         `json:"-"`
 }
 
-// SourceLocations returns a shallow copy of the source-aware locations in
-// validation order. It returns nil when the error has no source metadata. It
-// panics when LocationSources is not aligned with Locations.
-func (err *Error) SourceLocations() []SourceLocation {
+// NewErrorWithSources pairs an existing GraphQL error with its source
+// documents. The source slice is copied so callers cannot change the error's
+// source associations by mutating their input slice.
+func NewErrorWithSources(err *Error, sources []*ast.Source) *ErrorWithSources {
 	if err == nil {
 		return nil
 	}
-	if len(err.LocationSources) == 0 {
+	return &ErrorWithSources{
+		Err:             err.Err,
+		Message:         err.Message,
+		Path:            err.Path,
+		Locations:       append([]Location(nil), err.Locations...),
+		LocationSources: append([]*ast.Source(nil), sources...),
+		Extensions:      err.Extensions,
+		Rule:            err.Rule,
+	}
+}
+
+func (err *ErrorWithSources) SetFile(file string) {
+	if file == "" {
+		return
+	}
+	if err.Extensions == nil {
+		err.Extensions = map[string]any{}
+	}
+	err.Extensions["file"] = file
+}
+
+func (err *ErrorWithSources) Error() string {
+	if err == nil {
+		return ""
+	}
+	base := &Error{
+		Err:        err.Err,
+		Message:    err.Message,
+		Path:       err.Path,
+		Locations:  err.Locations,
+		Extensions: cloneExtensions(err.Extensions),
+		Rule:       err.Rule,
+	}
+	if base.Extensions == nil {
+		base.Extensions = map[string]any{}
+	}
+	if len(err.Locations) == 1 && len(err.LocationSources) == len(err.Locations) {
+		if source := err.LocationSources[0]; source != nil && source.Name != "" {
+			base.Extensions["file"] = source.Name
+		}
+	} else if len(err.Locations) > 1 && len(err.LocationSources) == len(err.Locations) {
+		delete(base.Extensions, "file")
+		if source := err.LocationSources[0]; source != nil && source.Name != "" {
+			base.Extensions["file"] = source.Name
+		}
+	}
+	return base.Error()
+}
+
+func cloneExtensions(extensions map[string]any) map[string]any {
+	if extensions == nil {
+		return nil
+	}
+	clone := make(map[string]any, len(extensions))
+	for key, value := range extensions {
+		clone[key] = value
+	}
+	return clone
+}
+
+func (err *ErrorWithSources) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.Err
+}
+
+func (err *ErrorWithSources) AsError() error {
+	if err == nil {
+		return nil
+	}
+	return err
+}
+
+// SourceLocations returns a shallow copy of the source-aware locations in
+// validation order. It panics when LocationSources is not aligned with
+// Locations.
+func (err *ErrorWithSources) SourceLocations() []SourceLocation {
+	if err == nil || len(err.LocationSources) == 0 {
 		return nil
 	}
 	if len(err.LocationSources) != len(err.Locations) {
@@ -88,12 +161,43 @@ func (err *Error) SourceLocations() []SourceLocation {
 	return locations
 }
 
-// UnmarshalJSON discards source documents because GraphQL error JSON does not
-// encode them.
-func (err *Error) UnmarshalJSON(data []byte) error {
-	type errorWithoutMethods Error
-	err.LocationSources = nil
-	return json.Unmarshal(data, (*errorWithoutMethods)(err))
+// SourceList is the result type returned by the opt-in source-aware validator
+// APIs.
+type SourceList []*ErrorWithSources
+
+func (errs SourceList) Error() string {
+	var buf strings.Builder
+	for _, err := range errs {
+		buf.WriteString(err.Error())
+		buf.WriteByte('\n')
+	}
+	return buf.String()
+}
+
+func (errs SourceList) Is(target error) bool {
+	for _, err := range errs {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func (errs SourceList) As(target any) bool {
+	for _, err := range errs {
+		if errors.As(err, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func (errs SourceList) Unwrap() []error {
+	l := make([]error, len(errs))
+	for i, err := range errs {
+		l[i] = err
+	}
+	return l
 }
 
 type List []*Error
@@ -103,18 +207,7 @@ func (err *Error) Error() string {
 	if err == nil {
 		return ""
 	}
-	sourcesAligned := len(err.LocationSources) == len(err.Locations)
 	filename, _ := err.Extensions["file"].(string)
-	if len(err.Locations) == 1 {
-		if filename == "" && sourcesAligned && err.LocationSources[0] != nil {
-			filename = err.LocationSources[0].Name
-		}
-	} else if len(err.Locations) > 1 && sourcesAligned {
-		filename = ""
-		if err.LocationSources[0] != nil {
-			filename = err.LocationSources[0].Name
-		}
-	}
 	if filename == "" {
 		filename = "input"
 	}
@@ -246,15 +339,25 @@ func ErrorPosf(pos *ast.Position, message string, args ...any) *Error {
 			args...,
 		)
 	}
-	err := &Error{Message: fmt.Sprintf(message, args...)}
-	err.SetFile(pos.Src.Name)
-	err.AddLocation(Location{Line: pos.Line, Column: pos.Column}, pos.Src)
-	return err
+	return ErrorLocf(
+		pos.Src.Name,
+		pos.Line,
+		pos.Column,
+		message,
+		args...,
+	)
 }
 
 func ErrorLocf(file string, line, col int, message string, args ...any) *Error {
-	err := &Error{Message: fmt.Sprintf(message, args...)}
-	err.SetFile(file)
-	err.AddLocation(Location{Line: line, Column: col}, nil)
-	return err
+	var extensions map[string]any
+	if file != "" {
+		extensions = map[string]any{"file": file}
+	}
+	return &Error{
+		Message:    fmt.Sprintf(message, args...),
+		Extensions: extensions,
+		Locations: []Location{
+			{Line: line, Column: col},
+		},
+	}
 }

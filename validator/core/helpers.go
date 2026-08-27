@@ -19,16 +19,16 @@ func Message(msg string, args ...any) ErrorOption {
 	}
 }
 
-// At appends a source position in the order the validation rule supplies it.
-// The first position is the primary location. Keeping option order preserves
-// the order of GraphQL validation nodes and makes multi-location diagnostics
-// deterministic without sorting locations from different source documents.
 func At(position *ast.Position) ErrorOption {
 	return func(err *gqlerror.Error) {
 		if position == nil {
 			return
 		}
-		err.AddLocation(gqlerror.Location{
+		err.Locations = append(err.Locations, gqlerror.Location{
+			Line:   position.Line,
+			Column: position.Column,
+		})
+		recordSourceLocation(err, gqlerror.Location{
 			Line:   position.Line,
 			Column: position.Column,
 		}, position.Src)
