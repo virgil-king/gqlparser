@@ -1,6 +1,7 @@
 package gqlerror
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -74,6 +75,14 @@ func NewErrorWithSources(err *Error, sources []*ast.Source) *ErrorWithSources {
 	}
 }
 
+// UnmarshalJSON discards source documents because GraphQL error JSON does not
+// encode them.
+func (err *ErrorWithSources) UnmarshalJSON(data []byte) error {
+	type errorWithoutMethods ErrorWithSources
+	err.LocationSources = nil
+	return json.Unmarshal(data, (*errorWithoutMethods)(err))
+}
+
 func (err *ErrorWithSources) SetFile(file string) {
 	if file == "" {
 		return
@@ -100,8 +109,11 @@ func (err *ErrorWithSources) Error() string {
 		base.Extensions = map[string]any{}
 	}
 	if len(err.Locations) == 1 && len(err.LocationSources) == len(err.Locations) {
-		if source := err.LocationSources[0]; source != nil && source.Name != "" {
-			base.Extensions["file"] = source.Name
+		filename, _ := base.Extensions["file"].(string)
+		if filename == "" {
+			if source := err.LocationSources[0]; source != nil && source.Name != "" {
+				base.Extensions["file"] = source.Name
+			}
 		}
 	} else if len(err.Locations) > 1 && len(err.LocationSources) == len(err.Locations) {
 		delete(base.Extensions, "file")

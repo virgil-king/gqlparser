@@ -11,6 +11,7 @@ import (
 	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/vektah/gqlparser/v2/parser"
 	"github.com/vektah/gqlparser/v2/validator"
+	"github.com/vektah/gqlparser/v2/validator/core"
 	"github.com/vektah/gqlparser/v2/validator/rules"
 )
 
@@ -136,6 +137,76 @@ func TestSingleLocationValidationRetainsSource(t *testing.T) {
 	require.Len(t, found.LocationSources, 1)
 	require.Equal(t, found.Locations[0], gqlerror.Location{Line: 1, Column: 16})
 	require.Same(t, source, found.LocationSources[0])
+}
+
+func TestValidateWithRulesWithSourcesRetainsOrderedCustomRuleLocations(t *testing.T) {
+	s := gqlparser.MustLoadSchema(&ast.Source{
+		Name:  "schema.graphqls",
+		Input: "type Query { field: String }",
+	})
+	doc, err := parser.ParseQuery(&ast.Source{
+		Name:  "query.graphql",
+		Input: "query Query { field }",
+	})
+	require.NoError(t, err)
+
+	firstSource := &ast.Source{Name: "first.graphql"}
+	secondSource := &ast.Source{Name: "second.graphql"}
+	multiRule := validator.Rule{
+		Name: "MultiRule",
+		RuleFunc: func(_ *validator.Events, addError validator.AddErrFunc) {
+			addError(
+				validator.Message("multi"),
+				core.At(&ast.Position{Src: firstSource, Line: 2, Column: 3}),
+				core.At(&ast.Position{Src: secondSource, Line: 4, Column: 5}),
+			)
+		},
+	}
+	alphaRule := validator.Rule{
+		Name: "AlphaRule",
+		RuleFunc: func(_ *validator.Events, addError validator.AddErrFunc) {
+			addError(
+				validator.Message("alpha"),
+				core.At(&ast.Position{Src: secondSource, Line: 6, Column: 7}),
+			)
+		},
+	}
+
+	for range 5 {
+		errs := validator.ValidateWithRulesWithSources(s, doc, rules.NewRules(multiRule, alphaRule))
+		require.Len(t, errs, 2)
+		require.Equal(t, "AlphaRule", errs[0].Rule)
+		require.Equal(t, "MultiRule", errs[1].Rule)
+		require.Equal(t, []gqlerror.Location{{Line: 6, Column: 7}}, errs[0].Locations)
+		require.Equal(t, []*ast.Source{secondSource}, errs[0].LocationSources)
+		require.Equal(t, []gqlerror.Location{{Line: 2, Column: 3}, {Line: 4, Column: 5}}, errs[1].Locations)
+		require.Equal(t, []*ast.Source{firstSource, secondSource}, errs[1].LocationSources)
+	}
+}
+
+func TestValidateWithRulesWithSourcesUsesDefaultRules(t *testing.T) {
+	s := gqlparser.MustLoadSchema(&ast.Source{
+		Name:  "schema.graphqls",
+		Input: "type Query { field: String }",
+	})
+	source := &ast.Source{
+		Name:  "query.graphql",
+		Input: "query Query { missing }",
+	}
+	doc, err := parser.ParseQuery(source)
+	require.NoError(t, err)
+
+	var found *gqlerror.ErrorWithSources
+	for _, validationErr := range validator.ValidateWithRulesWithSources(s, doc, nil) {
+		if validationErr.Rule == "FieldsOnCorrectType" {
+			found = validationErr
+			break
+		}
+	}
+
+	require.NotNil(t, found)
+	require.Equal(t, []gqlerror.Location{{Line: 1, Column: 15}}, found.Locations)
+	require.Equal(t, []*ast.Source{source}, found.LocationSources)
 }
 
 func TestValidationRulesAreIndependent(t *testing.T) {

@@ -9,7 +9,6 @@ import (
 )
 
 type sourceCapture struct {
-	err       *gqlerror.Error
 	locations []gqlerror.Location
 	sources   []*ast.Source
 }
@@ -24,7 +23,7 @@ func CaptureSourceLocations(err *gqlerror.Error, apply func()) []*ast.Source {
 	if err == nil {
 		panic("gqlparser: cannot capture source locations for a nil error")
 	}
-	capture := &sourceCapture{err: err}
+	capture := &sourceCapture{}
 	sourceCaptures.Store(err, capture)
 	defer sourceCaptures.Delete(err)
 
