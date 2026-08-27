@@ -186,6 +186,23 @@ func TestNewErrorWithSourcesCopiesInputLocations(t *testing.T) {
 	require.Equal(t, SourceLocation{Line: 1, Column: 2, Source: source}, err.Locations[0])
 }
 
+func TestNewErrorWithSourcesCopiesLegacyLocationsWithoutSources(t *testing.T) {
+	err := NewErrorWithSources(
+		&Error{
+			Message:    "kabloom",
+			Locations:  []Location{{Line: 1, Column: 2}, {Line: 3, Column: 4}},
+			Extensions: map[string]any{"file": "legacy.graphql"},
+		},
+		nil,
+	)
+
+	require.Equal(t, []SourceLocation{
+		{Line: 1, Column: 2},
+		{Line: 3, Column: 4},
+	}, err.Locations)
+	require.Equal(t, `legacy.graphql:1:2: kabloom`, err.Error())
+}
+
 func TestNewErrorWithSourcesRejectsMismatchedLocations(t *testing.T) {
 	require.PanicsWithValue(
 		t,

@@ -2,6 +2,8 @@ package validator_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -178,6 +180,89 @@ func TestValidateWithRulesWithSourcesRetainsOrderedCustomRuleLocations(t *testin
 			{Line: 4, Column: 5, Source: secondSource},
 		}, errs[1].Locations)
 	}
+}
+
+func TestValidateWithRulesWithSourcesIsConcurrent(t *testing.T) {
+	const runs = 16
+	type result struct {
+		source *ast.Source
+		line   int
+		errs   gqlerror.SourceList
+		err    error
+	}
+	results := make(chan result, runs)
+	var wg sync.WaitGroup
+
+	for i := 0; i < runs; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s := gqlparser.MustLoadSchema(&ast.Source{
+				Name:  "schema.graphqls",
+				Input: "type Query { field: String }",
+			})
+			doc, err := parser.ParseQuery(&ast.Source{
+				Name:  "query.graphql",
+				Input: "query Query { field }",
+			})
+			if err != nil {
+				results <- result{err: err}
+				return
+			}
+			source := &ast.Source{Name: fmt.Sprintf("query-%d.graphql", i)}
+			rule := validator.Rule{
+				Name: "ParallelRule",
+				RuleFunc: func(_ *validator.Events, addError validator.AddErrFunc) {
+					addError(
+						validator.Message("parallel"),
+						core.At(&ast.Position{Src: source, Line: i + 1, Column: 2}),
+					)
+				},
+			}
+			results <- result{
+				source: source,
+				line:   i + 1,
+				errs:   validator.ValidateWithRulesWithSources(s, doc, rules.NewRules(rule)),
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+	for result := range results {
+		require.NoError(t, result.err)
+		require.Len(t, result.errs, 1)
+		require.Equal(t, []gqlerror.SourceLocation{{
+			Line:   result.line,
+			Column: 2,
+			Source: result.source,
+		}}, result.errs[0].Locations)
+	}
+}
+
+func TestValidateWithRulesWithSourcesAllowsErrorsWithoutLocations(t *testing.T) {
+	s := gqlparser.MustLoadSchema(&ast.Source{
+		Name:  "schema.graphqls",
+		Input: "type Query { field: String }",
+	})
+	doc, err := parser.ParseQuery(&ast.Source{
+		Name:  "query.graphql",
+		Input: "query Query { field }",
+	})
+	require.NoError(t, err)
+
+	rule := validator.Rule{
+		Name: "NoLocationRule",
+		RuleFunc: func(_ *validator.Events, addError validator.AddErrFunc) {
+			addError(validator.Message("no location"))
+		},
+	}
+	errs := validator.ValidateWithRulesWithSources(s, doc, rules.NewRules(rule))
+
+	require.Len(t, errs, 1)
+	require.Equal(t, "no location", errs[0].Message)
+	require.Nil(t, errs[0].Locations)
 }
 
 func TestValidateWithRulesWithSourcesUsesDefaultRules(t *testing.T) {
