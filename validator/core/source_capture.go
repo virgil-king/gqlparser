@@ -12,6 +12,9 @@ type sourceCapture struct {
 	locations []gqlerror.SourceLocation
 }
 
+// sourceCaptures bridges the legacy ErrorOption API: At receives only an
+// *gqlerror.Error and cannot access CaptureSourceLocations' local capture.
+// Entries exist only while source-aware options are being applied.
 var sourceCaptures sync.Map // map[*gqlerror.Error]*sourceCapture
 
 // CaptureSourceLocations applies error options while recording the source
