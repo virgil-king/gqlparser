@@ -88,7 +88,6 @@ func TestErrorPosition(t *testing.T) {
 		require.Nil(t, err.Extensions["file"])
 		require.Nil(t, errNilPosition.Extensions["file"])
 	})
-
 }
 
 func TestErrorWithSourcesAreNotSerialized(t *testing.T) {
@@ -137,8 +136,10 @@ func TestErrorWithSourcesFormatsDirectCanonicalLocations(t *testing.T) {
 
 func TestErrorWithSourcesFormatsDirectSingleLocation(t *testing.T) {
 	err := &ErrorWithSources{
-		Message:   "kabloom",
-		Locations: []SourceLocation{{Line: 1, Column: 2, Source: &ast.Source{Name: "query.graphql"}}},
+		Message: "kabloom",
+		Locations: []SourceLocation{
+			{Line: 1, Column: 2, Source: &ast.Source{Name: "query.graphql"}},
+		},
 	}
 
 	require.Equal(t, `query.graphql:1:2: kabloom`, err.Error())
